@@ -217,7 +217,7 @@ static void die_regex(int errcode, const regex_t *preg)
 {
     size_t sz = regerror(errcode, preg, NULL, 0);
     char *buffer = new char[sz + 1];
-    auto_ptr<char> buffer_wrapper(buffer);
+    unique_ptr<char> buffer_wrapper(buffer);
     sz = regerror(errcode, preg, buffer, sz); /* sz includes the NULL */
     buffer[sz] = '\0';
     buffer[sz - 1] = '\n';
@@ -320,7 +320,7 @@ static bool dumpable(tree_node_p type)
     {
         string name = type_to_string(type, "", false);
     }
-    catch (anonymous_type_error)
+    catch (anonymous_type_error&)
     {
         return false;
     }

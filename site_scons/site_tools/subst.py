@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from SCons import *
 
 def _wrapper(self, target, source, replacements, **kw):
@@ -7,8 +9,8 @@ def _wrapper(self, target, source, replacements, **kw):
 def substfile(target, source, env):
     src = source[0].get_contents()
     substs = source[1].read()
-    for key, value in substs.iteritems():
-        src = src.replace('@' + key + '@', value)
+    for key, value in substs.items():
+        src = src.replace(b'@' + key.encode() + b'@', value.encode())
     f = open(str(target[0]), 'wb')
     f.write(src)
 

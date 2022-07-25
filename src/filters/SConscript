@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import BugleChecks
 
@@ -57,7 +57,7 @@ if 'interceptor' in aspects['parts']:
     if conf.CheckPkgConfig():
         if conf.CheckPkg(aspects, 'libavcodec', without_name = 'without_lavc'):
             conf.env.Append(CPPDEFINES = [('HAVE_LAVC', 1)])
-            conf.env.ParseConfig('pkg-config libavcodec --cflags --libs')
+            conf.env.ParseConfig('pkg-config libavcodec libavutil --cflags --libs')
             if conf.CheckPkg(aspects, 'libavformat'):
                 conf.env.ParseConfig('pkg-config libavformat --cflags --libs')
             if conf.CheckHeader('libavcodec/avcodec.h'):

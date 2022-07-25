@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <errno.h>
+#include <dlfcn.h>
 #include <bugle/memory.h>
 #include <bugle/string.h>
 #include <bugle/math.h>
@@ -297,8 +298,12 @@ static void filter_library_init(const char *filename, void *data)
     void (*init)(void);
 
     handle = bugle_dl_open(filename, 0);
-    if (handle == NULL) return;
-
+    if (handle == NULL)
+    {
+        bugle_log_printf("filters", "initialise", BUGLE_LOG_ERROR,
+                         "failed to load %s: %s", filename, dlerror());
+        return;
+    }
     init = (void (*)(void)) bugle_dl_sym_function(handle, "bugle_initialise_filter_library");
     if (init == NULL)
     {

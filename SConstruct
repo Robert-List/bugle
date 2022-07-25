@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 import os
 from BugleAspects import *
 
@@ -254,7 +255,7 @@ def setup_aspects():
         group = 'options',
         name = 'parts',
         help = 'Select which parts of BuGLe to build',
-        choices = ['debugger', 'interceptor', 'docs', 'tests'],
+        choices = ['debugger', 'interceptor', 'docs'],
         multiple = True,
         default = 'all'))
     aspects.AddAspect(Aspect(

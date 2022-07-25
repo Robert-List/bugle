@@ -30,12 +30,12 @@ If applicable, add screenshots to help explain your problem.
  - OS: [e.g. Linux]
  - OpenGL variant: [e.g. gl, gles2]
  - Window system abstraction: [e.g. glw, egl]
- - Used filter: [e.g. screenshot]
- - Version [e.g. 10.0.3]
+ - Used chain: [e.g. screenshot]
+ - Version: [e.g. 10.0.3]
 
 **Utility Library (please complete the following information):**
 - OS: [e.g. Win32, Win64]
-- Version [e.g. 8.0.4]
+- Version: [e.g. 8.0.4]
 
 **Additional context**
 Add any other context about the problem here.

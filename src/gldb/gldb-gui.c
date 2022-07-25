@@ -731,7 +731,7 @@ static void about_action(GtkAction *action, gpointer user_data)
                           "comments", "An open-source OpenGL debugger",
                           "copyright", "2004-2009 Bruce Merry",
                           "license", license,
-                          /* TODO "version", PACKAGE_VERSION, */
+                          "version", "1.0.1",
                           "website", "http://www.opengl.org/sdk/tools/BuGLe/",
                           NULL);
 }

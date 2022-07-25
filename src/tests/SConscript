@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 import tempfile
 from subprocess import *
 import sys
@@ -30,7 +31,7 @@ filter_dir = os.path.join(bugle_path, 'filters')
 filters = srcdir.File('filters').abspath
 
 if 'interceptor' not in aspects['parts']:
-    print 'WARNING: cannot run some tests without interceptor. They will be skipped'
+    print('WARNING: cannot run some tests without interceptor. They will be skipped')
 else:
     if aspects['gltype'] == 'gl':
         glew_lib = False
@@ -103,9 +104,9 @@ else:
                 simple_test('threads1')
                 simple_test('threads2')
         else:
-            print 'WARNING: GLEW, GLUT and GLU are required for some tests'
+            print('WARNING: GLEW, GLUT and GLU are required for some tests')
     else:
-        print 'WARNING: not all tests run on this variant of OpenGL'
+        print('WARNING: not all tests run on this variant of OpenGL')
 
 bugletest = test_env.Program(
         target = 'bugletest',

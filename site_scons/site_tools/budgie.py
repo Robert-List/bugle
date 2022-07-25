@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 '''
 Registers a builder to produce files from budgie. The builder takes
@@ -14,12 +14,12 @@ import re
 def bc_scanner_function(node, env, path, arg = None):
     '''Searches a .bc file for INCLUDE lines'''
     contents = node.get_contents()
-    matches = re.findall(r'^\s*INCLUDE\s*(\S+)\s*$', contents, re.M)
+    matches = re.findall(br'^\s*INCLUDE\s*(\S+)\s*$', contents, re.M)
     deps = []
     for x in matches:
-        dep = env.FindFile(x, path)
+        dep = env.FindFile(x.decode(), path)
         if dep is None:
-            raise NameError, "Could not find " + x
+            raise NameError("Could not find " + x.decode())
         else:
             deps.append(dep)
     return deps

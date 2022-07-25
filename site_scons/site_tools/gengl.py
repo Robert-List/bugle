@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 from SCons import *
 from subprocess import *
 import re
@@ -13,13 +14,13 @@ def gengl_emitter(target, source, env):
 
 def generate(env, **kw):
     alias_builder = env.Builder(
-            action = Action.Action('python $GENGL --mode=alias --gltype=$GLTYPE $SOURCES > $TARGET', '$ALIASCOMSTR'),
+            action = Action.Action('python3 $GENGL --mode=alias --gltype=$GLTYPE $SOURCES > $TARGET', '$ALIASCOMSTR'),
             emitter = gengl_emitter)
     apitables_c_builder = env.Builder(
-            action = Action.Action('python $GENGL --mode=c --gltype=$GLTYPE --header=$SOURCES > $TARGET', '$APITABLESCCOMSTR'),
+            action = Action.Action('python3 $GENGL --mode=c --gltype=$GLTYPE --header=$SOURCES > $TARGET', '$APITABLESCCOMSTR'),
             emitter = gengl_emitter)
     apitables_h_builder = env.Builder(
-            action = Action.Action('python $GENGL --mode=header --gltype=$GLTYPE --header=$SOURCES > $TARGET', '$APITABLESHCOMSTR'),
+            action = Action.Action('python3 $GENGL --mode=header --gltype=$GLTYPE --header=$SOURCES > $TARGET', '$APITABLESHCOMSTR'),
             emitter = gengl_emitter)
     env.Append(
             BUILDERS = {

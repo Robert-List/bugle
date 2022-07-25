@@ -202,10 +202,10 @@ bugle_bool gldb_gui_target_dialog_run(GtkWindow *parent)
     gtk_window_set_resizable(GTK_WINDOW(context.dialog), FALSE);
 
     target_mode(&context);
-    for (setting = 0; setting < GLDB_PROGRAM_SETTING_COUNT; setting++)
 
     table = gtk_table_new(GLDB_PROGRAM_SETTING_COUNT + 1, 2, FALSE);
     add_labelled(table, 0, _("Mode"), context.mode);
+
     for (setting = 0; setting < GLDB_PROGRAM_SETTING_COUNT; setting++)
     {
         context.settings[setting] = entry_new_with_setting(setting);

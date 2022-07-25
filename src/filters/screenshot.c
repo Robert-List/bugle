@@ -68,7 +68,14 @@
 #   include <swscale.h>
 #  endif
 # endif
-# define CAPTURE_AV_FMT PIX_FMT_RGB24
+# if LIBAVCODEC_BUILD >= AV_VERSION_INT(57,24,102) /* 3.0 last version with avpicture_get_size() & avpicture_fill() */
+#  include <libavutil/imgutils.h>
+# endif
+# if LIBAVUTIL_BUILD >= AV_VERSION_INT(52,13,100) /* 1.1 */
+#   define CAPTURE_AV_FMT AV_PIX_FMT_RGB24
+# else
+#   define CAPTURE_AV_FMT PIX_FMT_RGB24
+# endif
 # define CAPTURE_GL_FMT GL_RGB
 #endif
 #define CAPTURE_GL_ELEMENTS 3
@@ -216,6 +223,10 @@ static void free_screenshot_data(screenshot_data *data)
 
 #if HAVE_LAVC
 static AVFormatContext *video_context = NULL;
+static AVCodecContext *codec_context = NULL;
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
+static AVPacket *pkt = NULL;
+#endif
 static AVStream *video_stream;
 static AVFrame *video_raw, *video_yuv;
 static uint8_t *video_buffer;
@@ -224,6 +235,39 @@ static size_t video_buffer_size = 2000000; /* FIXME: what should it be? */
 static struct SwsContext *sws_context = NULL;
 #endif
 
+static void encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt, AVFormatContext *format_ctx)
+{
+    int ret;
+    /* send the frame to the encoder */
+    if (frame)
+        bugle_log_printf("screenshot", "encode", BUGLE_LOG_DEBUG,
+                         "sending frame %3"PRId64, frame->pts);
+    ret = avcodec_send_frame(enc_ctx, frame);
+    if (ret < 0) {
+        bugle_log_printf("screenshot", "video", BUGLE_LOG_ERROR,
+                         "failed to send a frame for encoding: %s", av_err2str(ret));
+        exit(1);
+    }
+    while (ret >= 0) {
+        ret = avcodec_receive_packet(enc_ctx, pkt);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            return;
+        else if (ret < 0) {
+            bugle_log_printf("screenshot", "video", BUGLE_LOG_ERROR,
+                             "failed to encode frame: %s", av_err2str(ret));
+            exit(1);
+        }
+        bugle_log_printf("screenshot", "encode", BUGLE_LOG_DEBUG,
+                         "writing packet %3"PRId64" (size=%5d)", pkt->pts, pkt->size);
+        ret = av_write_frame(format_ctx, pkt);
+        if (ret < 0) {
+            bugle_log_printf("screenshot", "video", BUGLE_LOG_ERROR,
+                             "failed to write packets: %s", av_err2str(ret));
+        }
+        av_packet_unref(pkt);
+    }
+}
+
 static AVFrame *allocate_video_frame(int fmt, int width, int height,
                                      bugle_bool create)
 {
@@ -231,26 +275,39 @@ static AVFrame *allocate_video_frame(int fmt, int width, int height,
     size_t size;
     void *buffer = NULL;
 
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(56,60,100) /* 2.8 last version with avcodec_alloc_frame() */
+    f = av_frame_alloc();
+#else
     f = avcodec_alloc_frame();
+#endif
     if (!f)
     {
         bugle_log("screenshot", "video", BUGLE_LOG_ERROR,
                   "failed to allocate frame");
         exit(1);
     }
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(57,24,102) /* 3.0 last version with avpicture_get_size() & avpicture_fill() */
+    size = av_image_get_buffer_size(fmt, width, height, 1);
+    if (create) buffer = bugle_malloc(size);
+    av_image_fill_arrays(f->data, f->linesize, buffer, fmt, width, height, 1);
+#else
     size = avpicture_get_size(fmt, width, height);
     if (create) buffer = bugle_malloc(size);
     avpicture_fill((AVPicture *) f, buffer, fmt, width, height);
+#endif
+
     return f;
 }
 
 static bugle_bool lavc_initialise(int width, int height)
 {
     AVOutputFormat *fmt;
-    AVCodecContext *c;
     AVCodec *codec;
 
-    av_register_all();
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "starting...");
+#if LIBAVFORMAT_BUILD < AV_VERSION_INT(57,83,100)
+    av_register_all(); /* NOTE: it seems that this is not neccessary */
+#endif
 #if LIBAVFORMAT_VERSION_INT >= 0x00342D00 /* Major 52, minor 45 */
     fmt = av_guess_format(NULL, video_filename, NULL);
     if (!fmt)
@@ -262,81 +319,150 @@ static bugle_bool lavc_initialise(int width, int height)
 #endif
     if (!fmt)
         return BUGLE_FALSE;
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "output format found");
+
     video_context = avformat_alloc_context();
     if (!video_context)
         return BUGLE_FALSE;
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "context allocated");
+
     video_context->oformat = fmt;
+#if LIBAVFORMAT_BUILD >= AV_VERSION_INT(58,12,100) /* libavformat 4.0 */
+    size_t size = strlen(video_filename) + strlen("file:/") + 1;
+    video_context->url = bugle_malloc(size);
+    if (!video_context->url)
+        return BUGLE_FALSE;
+    bugle_snprintf(video_context->url, size, "file:/%s", video_filename);
+#else
     snprintf(video_context->filename,
              sizeof(video_context->filename), "%s", video_filename);
+#endif
     video_stream = avformat_new_stream(video_context, NULL);
     if (!video_stream)
         return BUGLE_FALSE;
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "stream allocated");
+
     video_stream->id = 0; /* FIXME: what does this parameter do? */
     codec = avcodec_find_encoder_by_name(video_codec);
-    if (!codec) codec = avcodec_find_encoder(CODEC_ID_HUFFYUV);
+    if (!codec) codec = avcodec_find_encoder(AV_CODEC_ID_HUFFYUV);
     if (!codec)
         return BUGLE_FALSE;
-    c = video_stream->codec;
-#if LIBAVFORMAT_BUILD < 4621
-    c->codec_type = CODEC_TYPE_VIDEO;
-#else
-    c->codec_type = AVMEDIA_TYPE_VIDEO;
-#endif
-    c->codec_id = codec->id;
-    if (c->codec_id == CODEC_ID_HUFFYUV)
-        c->pix_fmt = PIX_FMT_YUV422P;
-    else
-        c->pix_fmt = PIX_FMT_YUV420P;
-    if (c->codec_id == CODEC_ID_FFV1)
-        c->strict_std_compliance = -1;
-    c->bit_rate = video_bitrate;
-    c->width = width;
-    c->height = height;
-    c->time_base.den = 30;
-    c->time_base.num = 1;
-    c->gop_size = 12;     /* FIXME: user should specify */
-    if (avcodec_open2(c, codec, NULL) < 0)
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "codec got");
+
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
+    pkt = av_packet_alloc();
+    if (!pkt)
         return BUGLE_FALSE;
+#endif
+
+#if LIBAVFORMAT_BUILD >= AV_VERSION_INT(57,40,101) /* 3.1 */
+    codec_context = avcodec_alloc_context3(codec);
+    if (!codec_context)
+        return BUGLE_FALSE;
+#else
+    codec_context = video_stream->codec;
+#endif
+#if LIBAVFORMAT_BUILD < 4621
+    codec_context->codec_type = CODEC_TYPE_VIDEO;
+#else
+    codec_context->codec_type = AVMEDIA_TYPE_VIDEO;
+#endif
+    codec_context->codec_id = codec->id;
+    if (codec_context->codec_id == AV_CODEC_ID_HUFFYUV)
+        codec_context->pix_fmt = AV_PIX_FMT_YUV422P;
+    else
+        codec_context->pix_fmt = AV_PIX_FMT_YUV420P;
+    if (codec_context->codec_id == AV_CODEC_ID_FFV1)
+        codec_context->strict_std_compliance = -1;
+    codec_context->bit_rate = video_bitrate;
+    codec_context->width = width;
+    codec_context->height = height;
+    codec_context->time_base.num = 1;
+    codec_context->time_base.den = 30;
+    codec_context->gop_size = 12;     /* FIXME: user should specify */
+#if LIBAVFORMAT_BUILD >= AV_VERSION_INT(57,40,101) /* 3.1 */
+    video_stream->time_base.num = codec_context->time_base.num;
+    video_stream->time_base.den = codec_context->time_base.den;
+
+    if (avcodec_parameters_from_context(video_stream->codecpar, codec_context) < 0)
+        return BUGLE_FALSE;
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "parameters set; Framerate: %i/%i sec", video_stream->time_base.num, video_stream->time_base.den);
+#endif
+    if (avcodec_open2(codec_context, codec, NULL) < 0)
+        return BUGLE_FALSE;
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "codec context opened");
+
     video_buffer = bugle_malloc(video_buffer_size);
     video_raw = allocate_video_frame(CAPTURE_AV_FMT, width, height, BUGLE_FALSE);
-    video_yuv = allocate_video_frame(c->pix_fmt, width, height, BUGLE_TRUE);
+    video_yuv = allocate_video_frame(codec_context->pix_fmt, width, height, BUGLE_TRUE);
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
+    video_yuv->format = codec_context->pix_fmt;
+    video_yuv->pts = 0;
+
+    video_yuv->width = width;
+    video_yuv->height = height;
+#endif
 #if LIBAVFORMAT_VERSION_INT >= 0x00350000 /* major of 53 */
-    if (avio_open(&video_context->pb, video_filename, AVIO_FLAG_WRITE) < 0)
+    if (avio_open(&(video_context->pb), video_filename, AVIO_FLAG_WRITE) < 0)
 #else
-    if (url_fopen(&video_context->pb, video_filename, URL_WRONLY) < 0)
+    if (url_fopen(&(video_context->pb), video_filename, URL_WRONLY) < 0)
 #endif
     {
         bugle_log_printf("screenshot", "video", BUGLE_LOG_ERROR,
                          "failed to open video output file %s", video_filename);
         exit(1);
     }
-#if LIBAVFORMAT_VERSION_INT >= 0x00350200 /* major 53, minor 2 */
-    avformat_write_header(video_context, NULL);
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "avio opened");
+
+#if LIBAVFORMAT_BUILD >= AV_VERSION_INT(53,2,0) /* major 53, minor 2 */
+    int ret;
+    if ((ret = avformat_write_header(video_context, NULL)) < 0)
+    {
+        bugle_log_printf("screenshot", "video", BUGLE_LOG_ERROR, "failed to write header: %s", av_err2str(ret));
+        return BUGLE_FALSE;
+    }
 #else
     av_write_header(video_context);
 #endif
+
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "header wrote");
+    bugle_log_printf("screenshot", "initialise", BUGLE_LOG_DEBUG, "finished");
+
     return BUGLE_TRUE;
 }
 
 static void lavc_shutdown(void)
 {
     int i;
-    AVCodecContext *c;
+
+    bugle_log("screenshot", "shutdown", BUGLE_LOG_DEBUG, "starting...");
+
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
+    /* Write any delayed frames. */
+    encode(codec_context, NULL, pkt, video_context);
+#else
     size_t out_size;
 
-    c = video_stream->codec;
+    codec_context = video_stream->codec;
     /* Write any delayed frames. */
     do
     {
         AVPacket pkt;
         int ret;
 
-        out_size = avcodec_encode_video(c, video_buffer, video_buffer_size, NULL);
+        out_size = avcodec_encode_video(codec_context, video_buffer, video_buffer_size, NULL);
         if (out_size)
         {
             av_init_packet(&pkt);
-            pkt.pts = c->coded_frame->pts;
-            if (c->coded_frame->key_frame)
+            pkt.pts = codec_context->coded_frame->pts;
+            if (codec_context->coded_frame->key_frame)
             {
 #if LIBAVFORMAT_BUILD < 4621
                 pkt.flags |= PKT_FLAG_KEY;
@@ -356,10 +482,14 @@ static void lavc_shutdown(void)
             }
         }
     } while (out_size);
-
+#endif
     /* Close it all down */
     av_write_trailer(video_context);
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(58,91,100) /* 4.3.4 */
+    avcodec_free_context(&codec_context);
+#else
     avcodec_close(video_stream->codec);
+#endif
     av_free(video_yuv->data[0]);
     /* We don't free video_raw, since that memory belongs to video_data */
     av_free(video_yuv);
@@ -376,6 +506,12 @@ static void lavc_shutdown(void)
 #endif
     av_free(video_context);
 
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(57,24,102) /* 3.0 */
+    av_packet_free(&pkt);
+#elif LIBAVCODEC_BUILD >= AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
+    av_free_packet(pkt);
+#endif
+
     for (i = 0; i < video_lag; i++)
         free_screenshot_data(&video_data[i]);
     bugle_free(video_data);
@@ -384,6 +520,8 @@ static void lavc_shutdown(void)
 #endif
 
     video_context = NULL;
+
+    bugle_log("screenshot", "shutdown", BUGLE_LOG_DEBUG, "finished");
 }
 
 #endif /* HAVE_LAVC */
@@ -535,12 +673,15 @@ static bugle_bool screenshot_stream(FILE *out, bugle_bool check_size)
 static void screenshot_video(void)
 {
     screenshot_data *fetch;
-    AVCodecContext *c;
+#if LIBAVCODEC_BUILD < AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
     size_t out_size;
     int i, ret;
+#endif
     bugle_timespec tv;
     double t = 0.0;
     screenshot_context ssctx;
+
+    bugle_log_printf("screenshot", "video", BUGLE_LOG_DEBUG, "starting...");
 
     if (!video_sample_all)
     {
@@ -549,8 +690,10 @@ static void screenshot_video(void)
         if (video_first) /* first frame */
             video_frame_time = t;
         else if (t < video_frame_time)
+        {
+            bugle_log_printf("screenshot", "video", BUGLE_LOG_DEBUG, "frame dropped");
             return; /* drop the frame because it is too soon */
-
+        }
         /* Repeat frames to make up for low app framerate */
         video_data[video_cur].multiplicity = 0;
         while (t >= video_frame_time)
@@ -578,27 +721,34 @@ static void screenshot_video(void)
     {
         if (!video_context)
             lavc_initialise(fetch->width, fetch->height);
-        c = video_stream->codec;
+
         if (!map_screenshot(fetch))
         {
             screenshot_stop(&ssctx);
             return;
         }
+
+        bugle_log_printf("screenshot", "video", BUGLE_LOG_DEBUG, "screenshot fetched");
+
         video_raw->data[0] = fetch->pixels + fetch->stride * (fetch->height - 1);
         video_raw->linesize[0] = -fetch->stride;
 #if HAVE_LIBSWSCALE
         sws_context = sws_getCachedContext(sws_context,
                                            fetch->width, fetch->height, CAPTURE_AV_FMT,
-                                           fetch->width, fetch->height, c->pix_fmt,
+                                           fetch->width, fetch->height, codec_context->pix_fmt,
                                            SWS_BILINEAR, NULL, NULL, NULL);
         sws_scale(sws_context, (const uint8_t * const *) video_raw->data, video_raw->linesize,
                   0, fetch->height, video_yuv->data, video_yuv->linesize);
 #else
 
-        img_convert((AVPicture *) video_yuv, c->pix_fmt,
+        img_convert((AVPicture *) video_yuv, codec_context->pix_fmt,
                     (AVPicture *) video_raw, CAPTURE_AV_FMT,
                     fetch->width, fetch->height);
 #endif
+#if LIBAVCODEC_BUILD >= AV_VERSION_INT(54,59,100) /* 1.0 last version with avcodec_encode_video */
+        encode(codec_context, video_yuv, pkt, video_context);
+        video_yuv->pts++;
+#else
         for (i = 0; i < fetch->multiplicity; i++)
         {
             out_size = avcodec_encode_video(video_stream->codec,
@@ -609,8 +759,8 @@ static void screenshot_video(void)
                 AVPacket pkt;
 
                 av_init_packet(&pkt);
-                pkt.pts = c->coded_frame->pts;
-                if (c->coded_frame->key_frame)
+                pkt.pts = codec_context->coded_frame->pts;
+                if (codec_context->coded_frame->key_frame)
                 {
 #if LIBAVFORMAT_BUILD < 4621
                     pkt.flags |= PKT_FLAG_KEY;
@@ -629,9 +779,12 @@ static void screenshot_video(void)
                 }
             }
         }
+#endif
         unmap_screenshot(fetch);
     }
     screenshot_stop(&ssctx);
+
+    bugle_log("screenshot", "video", BUGLE_LOG_DEBUG, "finished");
 }
 
 #else /* !HAVE_LAVC */
@@ -680,8 +833,7 @@ static void screenshot_file(int frameno)
 
 bugle_bool screenshot_callback(function_call *call, const callback_data *data)
 {
-    /* FIXME: track the frameno in the context?
-     */
+    /* FIXME: track the frameno in the context? */
     static int frameno = 0;
 
     if (video)

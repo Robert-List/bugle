@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 import os
 from CrossEnvironment import CrossEnvironment
 import BugleChecks
@@ -26,11 +27,11 @@ def check_gl(conf, lib, headers):
     # Incrementally check the headers
     for i in range(len(headers)):
         if not conf.CheckCHeader(headers[:(i+1)], '<>'):
-            print headers[i] + ' not found'
+            print(headers[i] + ' not found')
             Exit(1)
     if 'interceptor' in aspects['parts'] or 'tests' in aspects['parts']:
         if not conf.CheckLibWithHeader(lib, headers, 'c', 'glFlush();', False):
-            print conf.env.subst('${SHLIBPREFIX}' + lib + '${SHLIBSUFFIX} not found')
+            print(conf.env.subst('${SHLIBPREFIX}' + lib + '${SHLIBSUFFIX} not found'))
             Exit(1)
 
 def checks(env, gl_lib, gl_headers):
@@ -64,7 +65,7 @@ def apply_compiler(env, compiler, config):
         elif config == 'release':
             pass
         else:
-            raise RuntimeError, 'Unknown config "%s"' % config
+            raise RuntimeError('Unknown config "%s"' % config)
 
     elif compiler == 'gcc':
         env.Tool('gcc')
@@ -80,7 +81,7 @@ def apply_compiler(env, compiler, config):
         elif config == 'release':
             env.AppendUnique(CCFLAGS = ['-O2'], LINKFLAGS = ['-s'])
         else:
-            raise RuntimeError, 'Unknown config "%s"' % config
+            raise RuntimeError('Unknown config "%s"' % config)
 
     elif compiler == 'mingw':
         env.Tool('mingw')
@@ -96,13 +97,13 @@ def apply_compiler(env, compiler, config):
         elif config == 'release':
             env.AppendUnique(CCFLAGS = ['-O2'], LINKFLAGS = ['-s'])
         else:
-            raise RuntimeError, 'Unknown config "%s"' % config
+            raise RuntimeError('Unknown config "%s"' % config)
         # Workaround for http://scons.tigris.org/issues/show_bug.cgi?id=2683
         # We don't actually need the .def file.
         env['WINDOWS_INSERT_DEF'] = True
 
     else:
-        raise RuntimeError, 'Don\'t know how to apply compiler "%s"' % compiler
+        raise RuntimeError('Don\'t know how to apply compiler "%s"' % compiler)
 
 def apply_compilation_aspects(env, aspects):
     # single values
@@ -258,7 +259,7 @@ if aspects['host'] != '':
     envs['host']['HOST'] = aspects['host']
 apply_compiler(envs['build'], aspects['build-compiler'], aspects['config'])
 apply_compiler(envs['host'], aspects['host-compiler'], aspects['config'])
-for env in envs.itervalues():
+for env in envs.values():
     apply_compilation_aspects(env, aspects)
 
 # Deal with choice aspects
@@ -329,7 +330,7 @@ targets['bugleutils'].out = envs['host'].BugleSharedLibrary(
 
 if 'interceptor' in aspects['parts']:
     targets['bugle'].update({
-        'version': '10.0.2'})
+        'version': '10.0.3'})
 
     targets['bugle']['source'].extend([
         envs['host'].BugleCFile(['confparse.y', 'statsparse.y'], srcdir, package_sources, YACCFLAGS = '-d'),

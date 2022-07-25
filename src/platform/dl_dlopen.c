@@ -102,7 +102,6 @@ void bugle_dl_foreach(const char *path, void (*callback)(const char *filename, v
     /* readdir returns NULL for both end-of-stream and error, and
      * leaves errno untouched in the former case.
      */
-    errno = 0;
     while (NULL != (item = readdir(dir)))
     {
         size_t len;
@@ -118,12 +117,5 @@ void bugle_dl_foreach(const char *path, void (*callback)(const char *filename, v
             callback(filename, arg);
             bugle_free(filename);
         }
-    }
-
-    if (errno != 0)
-    {
-        bugle_log_printf("filters", "initialise", BUGLE_LOG_ERROR,
-                         "failed to read from %s: %s", path, strerror(errno));
-        exit(1);
     }
 }

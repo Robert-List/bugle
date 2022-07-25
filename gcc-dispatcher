@@ -1,0 +1,10 @@
+#! /bin/sh
+for argument in $@
+do
+   if [ "$argument" = "-fdump-translation-unit" ]; then
+      gcc-4 $@
+      exit $?
+   fi
+done
+gcc-10 $@
+exit $?

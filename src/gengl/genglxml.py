@@ -16,7 +16,6 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-from __future__ import print_function, division
 import sys
 import os.path
 import re
@@ -134,6 +133,7 @@ class API:
         self.extensions = dict()
         tree = etree.parse(filename)
         roots = [self.extra_tree, tree.getroot()]
+        re_value = re.compile('0x[0123456789ABCDEF]+|-?\d+|-?\d+\)?\)$')
 
         for root in roots:
             for enums_elem in root.iterfind('enums'):
@@ -142,7 +142,7 @@ class API:
                         if not self.match_require(enum_elem):
                             continue
                         enum = Enum(enum_elem)
-                        value = int(enum_elem.get('value'), 0)
+                        value = int(re_value.search(enum_elem.get('value'))[0], 0)
                         if value not in self.enum_values:
                             self.enum_values[value] = EnumValue(value)
                         enum.value = self.enum_values[value]
